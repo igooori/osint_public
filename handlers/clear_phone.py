@@ -17,40 +17,49 @@ CH_DATA = "/run/media/syntax/fe41420a-2b2c-46da-95d2-916bf3b50f52/clickhouse_dat
 async def search(user_query, status_callback=None):
     start_time = time.time() #
     search_term = user_query.strip()
-    clean_phone = "".join(filter(str.isdigit, search_term))
+    clean_phrase = search_term.replace("'", "''")
+    digits = "".join(filter(str.isdigit, search_term))
     
-    if clean_phone and len(clean_phone) >= 10:
-        phone_target = clean_phone[-10:]
+    if digits and len(digits) >= 10:
+        target = digits[-10:]
         sql = (
-            f"SELECT raw_data FROM osint "
-            f"WHERE phone IN ('{phone_target}', '7{phone_target}', '8{phone_target}') "
+            f"SELECT raw_data FROM default.osint "
+            f"WHERE phone IN ('{target}', '7{target}', '8{target}') "
             f"LIMIT 30 FORMAT JSONEachRow"
         )
     else:
-        if status_callback:
-            await status_callback("🔍 Глубокое сканирование всей записи...")
-        
-        search_phrase = search_term.strip()
-        if not search_term: 
-            return None, 0
-        
-        sql = (
-            f"SELECT raw_data FROM default.osint " 
-            f"WHERE raw_data ILIKE '%{search_phrase}%' "
-            f"LIMIT 30 FORMAT JSONEachRow "
-            f"SETTINGS max_execution_time=300, max_threads=1, priority=1"
-        )
+        words = [w.strip() for w in clean_phrase.split() if len(w.strip()) > 2]
 
+        if not words:
+            where_conditions = f"raw_data ILIKE '%{clean_phrase}%'"
+        else:
+            where_conditions = " AND ".join([f"hasTokenCaseInsensitive(raw_data, '{w}')" for w in words])
+            if status_callback:
+                await status_callback("⚡ Молниеносный поиск по индексам...")
+
+        sql = (
+            f"SELECT raw_data FROM default.osint "
+            f"WHERE {where_conditions} "
+            f"LIMIT 30 "
+            f"SETTINGS "
+            f"max_threads=4, "
+            f"max_execution_time=60, "
+            f"optimize_read_in_order=1, "    # Это заставит его уважать твой ORDER BY
+            f"use_uncompressed_cache=1 "
+            f"FORMAT JSONEachRow"
+        )
     try:
         my_env = os.environ.copy()
         my_env["LANG"] = "ru_RU.UTF-8"
 
         process = await asyncio.create_subprocess_exec(
-            "clickhouse-client", 
-            "--query", sql,
+            "/usr/bin/clickhouse-client", # ПРЯМОЙ ПУТЬ
+            "--host", "127.0.0.1",   # Явно указываем IPv4
+            "--port", "9000",        # Явно указываем порт
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            env=my_env
+            env=my_env               # Окружение оставляем, если нужны кодировки
         )
         
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=105)
