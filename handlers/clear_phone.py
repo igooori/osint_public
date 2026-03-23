@@ -28,6 +28,7 @@ async def search(user_query, status_callback=None):
             f"LIMIT 30 FORMAT JSONEachRow"
         )
     else:
+
         words = [w.strip() for w in clean_phrase.split() if len(w.strip()) > 2]
 
         if not words:
@@ -62,8 +63,7 @@ async def search(user_query, status_callback=None):
             env=my_env               # Окружение оставляем, если нужны кодировки
         )
         
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=105)
-
+        stdout, stderr = await asyncio.wait_for(process.communicate(input=sql.encode('utf-8')), timeout=310)
         if stderr:
             error_msg = stderr.decode('utf-8', errors='ignore')
             if "INDEX_NOT_USED" not in error_msg:
@@ -139,7 +139,7 @@ async def phone(message: Message):
         elif resultsm:
             await status_msg.edit_text(f"✅ Найдено: {len(resultsm)} за {duration}с")
             for row in resultsm[:10]:
-                await message.answer(format_record(row))
+                await message.answer(format_record(row),parse_mode='HTML')
         else:
             await status_msg.edit_text(f"❌ Ничего не найдено ({duration}с)")
     except Exception as e:
